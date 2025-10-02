@@ -8,7 +8,6 @@ import (
 )
 
 func ClearConsole() error {
-	var err error
 	var cmd *exec.Cmd
 
 	switch runtime.GOOS {
@@ -17,11 +16,7 @@ func ClearConsole() error {
 	case "windows":
 		cmd = exec.Command("cmd", "/c", "cls")
 	default:
-		err = fmt.Errorf("unsupported OS")
-	}
-
-	if err != nil {
-		return err
+		return fmt.Errorf("unsupported OS")
 	}
 
 	cmd.Stderr = os.Stderr
