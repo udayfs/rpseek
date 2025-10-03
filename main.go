@@ -12,6 +12,7 @@ import (
 var (
 	indexOutputPath string
 	indexInputPath  string
+	serveIndexPath  string
 	port            int
 	host            string
 )
@@ -39,15 +40,16 @@ func main() {
 	}
 
 	serveCmd.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: serve [-port <port>] [-host <host>]")
+		fmt.Fprintln(os.Stderr, "Usage: serve -f <index-file> [-port <port>] [-host <host>]")
 		serveCmd.PrintDefaults()
 	}
 
 	indexCmd.StringVar(&indexInputPath, "i", "", "file to be indexed")
 	indexCmd.StringVar(&indexOutputPath, "o", "index.json", "path to put the indexed output")
 
-	serveCmd.IntVar(&port, "port", 42069, "web server port")
+	serveCmd.StringVar(&serveIndexPath, "f", "", "index file to be searched upon")
 	serveCmd.StringVar(&host, "host", "127.0.0.1", "web server host")
+	serveCmd.IntVar(&port, "port", 42069, "web server port")
 
 	if len(os.Args) > 1 {
 		if os.Args[1] == "-h" || os.Args[1] == "--help" {
@@ -59,13 +61,16 @@ func main() {
 		case "index":
 			indexCmd.Parse(os.Args[2:])
 			if indexInputPath == "" {
-				internal.ExitOnError("no input files specified with '-i' flag")
+				internal.ExitOnError("no input file specified with '-i' flag")
 			}
 			err = tools.BuildJsonIndex(indexInputPath, indexOutputPath)
 
 		case "serve":
 			serveCmd.Parse(os.Args[2:])
-			server := &tools.Server{Host: host, Port: port}
+			if serveIndexPath == "" {
+				internal.ExitOnError("no index file specified with '-f' flag")
+			}
+			server := &tools.Server{Host: host, Port: port, IndexFile: serveIndexPath}
 			err = server.Serve()
 
 		default:

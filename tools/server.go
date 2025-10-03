@@ -1,17 +1,19 @@
 package tools
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
-	"os"
+	"time"
 
 	"github.com/udayfs/rpseek/internal"
 )
 
 type Server struct {
-	Host string
-	Port int
+	Host      string
+	Port      int
+	IndexFile string
 }
 
 func rootHandler(w http.ResponseWriter, req *http.Request) {
@@ -23,8 +25,23 @@ func jsHandler(w http.ResponseWriter, req *http.Request) {
 	http.ServeFile(w, req, "./web/js/rpseek.js")
 }
 
-func searchHandler(w http.ResponseWriter, req *http.Request) {
-	fmt.Fprintln(os.Stdout, req.Method, req.URL)
+func searchHandler(w http.ResponseWriter, req *http.Request, indexFilePath string) {
+	var query internal.SearchQuery
+
+	if err := json.NewDecoder(req.Body).Decode(&query); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	tokens := internal.Tokenize(query.Query)
+
+	start := time.Now()
+	if err := internal.SearchDoc(indexFilePath, tokens); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	end := time.Since(start).Seconds()
+	fmt.Println("Took:", end, "seconds to search")
 }
 
 func (s *Server) Serve() error {
@@ -43,8 +60,10 @@ func (s *Server) Serve() error {
 	fmt.Printf("Server started listening for requests on http://%s/\n", addr)
 
 	http.HandleFunc("/", rootHandler)
-	http.HandleFunc("/search", searchHandler)
 	http.HandleFunc("/js/rpseek.js", jsHandler)
+	http.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
+		searchHandler(w, r, s.IndexFile)
+	})
 
 	server := &http.Server{Addr: addr}
 	return server.Serve(ln)

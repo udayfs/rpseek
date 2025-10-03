@@ -6,39 +6,26 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/minio/simdjson-go"
+	"github.com/udayfs/rpseek/internal"
 )
 
-type PaperMeta struct {
-	Id         *simdjson.Element
-	Title      *simdjson.Element
-	Authors    *simdjson.Element
-	Abstract   *simdjson.Element
-	Categories *simdjson.Element
+type indexEntry struct {
+	Id   string             `json:"id"`
+	Freq internal.FreqTable `json:"freq"`
 }
 
-type IndexEntry struct {
-	Id   string         `json:"id"`
-	Freq map[string]int `json:"tfs"`
-}
+func buildDocFreq(text string) map[string]int {
+	terms := internal.Tokenize(text)
 
-func tokenize(text string) []string {
-	re := regexp.MustCompile(`\w+`)
-	return re.FindAllString(strings.ToUpper(text), -1)
-}
-
-func buildTf(text string) map[string]int {
-	terms := tokenize(text)
-
-	tf := make(map[string]int)
+	df := make(map[string]int)
 	for _, term := range terms {
-		tf[term]++
+		df[term]++
 	}
 
-	return tf
+	return df
 }
 
 func BuildJsonIndex(metaDataFilePath string, indexFilePath string) error {
@@ -63,7 +50,7 @@ func BuildJsonIndex(metaDataFilePath string, indexFilePath string) error {
 	defer of.Close()
 	defer writer.Flush()
 
-	resultChan := make(chan simdjson.Stream, 40)
+	resultChan := make(chan simdjson.Stream, 1)
 
 	go func() {
 		simdjson.ParseNDStream(jf, resultChan, nil)
@@ -77,66 +64,43 @@ func BuildJsonIndex(metaDataFilePath string, indexFilePath string) error {
 			return r.Error
 		}
 
-		var meta PaperMeta
-
 		err := r.Value.ForEach(func(i simdjson.Iter) error {
 			var err error
 
-			meta.Id, err = i.FindElement(nil, "id")
+			obj, err := i.Object(nil)
 			if err != nil {
 				return err
 			}
 
-			meta.Title, err = i.FindElement(nil, "title")
+			id, err := obj.FindKey("id", nil).Iter.String()
 			if err != nil {
 				return err
 			}
 
-			meta.Authors, err = i.FindElement(nil, "authors")
+			title, err := obj.FindKey("title", nil).Iter.String()
 			if err != nil {
 				return err
 			}
 
-			meta.Abstract, err = i.FindElement(nil, "abstract")
+			authors, err := obj.FindKey("authors", nil).Iter.String()
 			if err != nil {
 				return err
 			}
 
-			meta.Categories, err = i.FindElement(nil, "categories")
+			abstract, err := obj.FindKey("abstract", nil).Iter.String()
 			if err != nil {
 				return err
 			}
 
-			id, err := meta.Id.Iter.String()
+			categories, err := obj.FindKey("categories", nil).Iter.String()
 			if err != nil {
 				return err
 			}
 
-			title, err := meta.Title.Iter.String()
-			if err != nil {
-				return err
-			}
+			text := strings.Join([]string{title, authors, abstract, categories}, " ")
+			df := buildDocFreq(text)
 
-			authors, err := meta.Authors.Iter.String()
-			if err != nil {
-				return err
-			}
-
-			abstract, err := meta.Abstract.Iter.String()
-			if err != nil {
-				return err
-			}
-
-			categories, err := meta.Categories.Iter.String()
-			if err != nil {
-				return err
-			}
-
-			text := title + " " + authors + " " + abstract + " " + categories
-			tf := buildTf(text)
-
-			entry := IndexEntry{Id: id, Freq: tf}
-			if err := enc.Encode(&entry); err != nil {
+			if err := enc.Encode(&indexEntry{Id: id, Freq: df}); err != nil {
 				return err
 			}
 
