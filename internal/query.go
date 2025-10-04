@@ -1,9 +1,11 @@
 package internal
 
 import (
-	"fmt"
+	"bufio"
 	"io"
+	"math"
 	"os"
+	"sort"
 
 	"github.com/minio/simdjson-go"
 )
@@ -12,6 +14,11 @@ type FreqTable map[string]int
 
 type SearchQuery struct {
 	Query string `json:"query"`
+}
+
+type QueryResponse struct {
+	Doc_id string  `json:"doc_id"`
+	Rank   float64 `json:"rank"`
 }
 
 // See: https://en.wikipedia.org/wiki/Tf%E2%80%93idf#Term_frequency
@@ -25,18 +32,33 @@ func BuildTermFreq(term string, docFreq FreqTable) float64 {
 	return float64(docFreq[term]) / float64(sum)
 }
 
-func SearchDoc(indexFilePath string, tokens []string) error {
-	index, err := os.Open(indexFilePath)
-	if err != nil {
-		return err
+func BuildInverseDocFreq(term string, docs map[string]FreqTable) float64 {
+	N := len(docs)
+	M := 0
+
+	for _, tf := range docs {
+		if tf[term] != 0 {
+			M += 1
+		}
 	}
 
+	return math.Log10(float64(N) / (1.0 + float64(M)))
+}
+
+func SearchDoc(indexFilePath string, tokens []string) ([]QueryResponse, error) {
+	index, err := os.Open(indexFilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	reader := bufio.NewReader(index)
 	defer index.Close()
 
 	parsed := make(chan simdjson.Stream, 1)
+	docs := make(map[string]FreqTable)
 
 	go func() {
-		simdjson.ParseNDStream(index, parsed, nil)
+		simdjson.ParseNDStream(reader, parsed, nil)
 	}()
 
 	for r := range parsed {
@@ -44,7 +66,7 @@ func SearchDoc(indexFilePath string, tokens []string) error {
 			if r.Error == io.EOF {
 				break
 			}
-			return err
+			return nil, err
 		}
 
 		err := r.Value.ForEach(func(i simdjson.Iter) error {
@@ -76,20 +98,28 @@ func SearchDoc(indexFilePath string, tokens []string) error {
 
 			}, nil)
 
-			var total_tf float64 = 0.0
-			for _, tok := range tokens {
-				total_tf += BuildTermFreq(tok, tf_freq)
-			}
+			docs[id] = tf_freq
 
-			fmt.Println(id, "=>", total_tf)
-	
 			return err
 		})
 
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
-	return nil
+	res := make([]QueryResponse, 0)
+	for id, freq := range docs {
+		var rank float64 = 0.0
+		for _, tok := range tokens {
+			rank += BuildTermFreq(tok, freq) * BuildInverseDocFreq(tok, docs)
+		}
+		res = append(res, QueryResponse{id, rank})
+	}
+
+	sort.Slice(res, func(i, j int) bool {
+		return res[i].Rank > res[j].Rank
+	})
+
+	return res, nil
 }

@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"time"
 
 	"github.com/udayfs/rpseek/internal"
+)
+
+const (
+	MaxResponses = 10
 )
 
 type Server struct {
@@ -35,13 +38,18 @@ func searchHandler(w http.ResponseWriter, req *http.Request, indexFilePath strin
 
 	tokens := internal.Tokenize(query.Query)
 
-	start := time.Now()
-	if err := internal.SearchDoc(indexFilePath, tokens); err != nil {
+	if res, err := internal.SearchDoc(indexFilePath, tokens); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	} else {
+		w.Header().Add("Content-Type", "application/json")
+
+		err := json.NewEncoder(w).Encode(res[:MaxResponses])
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
-	end := time.Since(start).Seconds()
-	fmt.Println("Took:", end, "seconds to search")
 }
 
 func (s *Server) Serve() error {

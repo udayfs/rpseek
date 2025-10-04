@@ -4,4 +4,4 @@
 
 set -xe
 
-go build -o ./bin/rpseek
+go build -ldflags="-s -w" -o ./bin/rpseek

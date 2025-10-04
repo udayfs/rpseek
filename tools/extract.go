@@ -43,6 +43,7 @@ func BuildJsonIndex(metaDataFilePath string, indexFilePath string) error {
 		return err
 	}
 
+	reader := bufio.NewReader(jf)
 	writer := bufio.NewWriter(of)
 	enc := json.NewEncoder(writer)
 
@@ -53,7 +54,7 @@ func BuildJsonIndex(metaDataFilePath string, indexFilePath string) error {
 	resultChan := make(chan simdjson.Stream, 1)
 
 	go func() {
-		simdjson.ParseNDStream(jf, resultChan, nil)
+		simdjson.ParseNDStream(reader, resultChan, nil)
 	}()
 
 	for r := range resultChan {
